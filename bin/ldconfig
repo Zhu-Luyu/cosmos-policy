@@ -1,0 +1,11 @@
+#!/bin/bash
+# 拦截带有 -p 参数的调用
+if [[ "$*" == *"-p"* ]]; then
+    # 强行输出一行伪造的查找结果，满足 grep 'libnvrtc' 的正则匹配
+    echo "    libnvrtc.so (libc6,x86-64) => $HOME/cosmos-policy/.venv/lib/python3.10/site-packages/nvidia/cuda_nvrtc/lib/libnvrtc.so.12"
+    # 同时保留系统的原始输出（如果有的话）
+    /sbin/ldconfig -p 2>/dev/null
+else
+    # 其他情况放行
+    /sbin/ldconfig "$@"
+fi

@@ -1,2 +1,12 @@
 /.cuda-name
 /build
+*.err
+*.out
+**/__pycache__/
+cosmos_policy/experiments/robot/robocasa/logs
+output[0-9][0-9].txt
+output[0-9].txt
+output.txt
+pyproject.toml.*
+pyproject_simplified.toml
+robocasa-cosmos-policy
