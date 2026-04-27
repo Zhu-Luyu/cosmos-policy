@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Training config system for Imaginare4"""
+"""Training config system for Imaginaire4"""
 
 from __future__ import annotations
 
