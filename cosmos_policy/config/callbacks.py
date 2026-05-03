@@ -80,6 +80,8 @@ class WandbCallback(WandBCallbackImage):
         self.train_world_model_sample_value_l1_loss_log = _LossRecordNoEDM()
         self.train_value_function_sample_value_mse_loss_log = _LossRecordNoEDM()
         self.train_value_function_sample_value_l1_loss_log = _LossRecordNoEDM()
+        self.train_action_codec_ae_mse_loss_log = _LossRecordNoEDM()
+        self.train_action_codec_denoised_mse_loss_log = _LossRecordNoEDM()
         self.train_img_unstable_count = torch.zeros(1, device="cuda")
         self.train_video_unstable_count = torch.zeros(1, device="cuda")
 
@@ -106,6 +108,8 @@ class WandbCallback(WandBCallbackImage):
         self.val_world_model_sample_value_l1_loss_log = _LossRecordNoEDM()
         self.val_value_function_sample_value_mse_loss_log = _LossRecordNoEDM()
         self.val_value_function_sample_value_l1_loss_log = _LossRecordNoEDM()
+        self.val_action_codec_ae_mse_loss_log = _LossRecordNoEDM()
+        self.val_action_codec_denoised_mse_loss_log = _LossRecordNoEDM()
         self.val_img_unstable_count = torch.zeros(1, device="cuda")
         self.val_video_unstable_count = torch.zeros(1, device="cuda")
 
@@ -145,6 +149,15 @@ class WandbCallback(WandBCallbackImage):
             self.train_final_loss_log.loss += loss.detach().float()
             self.train_final_loss_log.iter_count += 1
             self.train_final_loss_log.edm_loss += output_batch["edm_loss"].detach().float()
+
+            action_codec_ae_mse_loss = output_batch["action_codec_ae_mse_loss"].detach().float()
+            if not torch.isnan(action_codec_ae_mse_loss):
+                self.train_action_codec_ae_mse_loss_log.loss += action_codec_ae_mse_loss
+                self.train_action_codec_ae_mse_loss_log.iter_count += 1
+            action_codec_denoised_mse_loss = output_batch["action_codec_denoised_mse_loss"].detach().float()
+            if not torch.isnan(action_codec_denoised_mse_loss):
+                self.train_action_codec_denoised_mse_loss_log.loss += action_codec_denoised_mse_loss
+                self.train_action_codec_denoised_mse_loss_log.iter_count += 1
 
             demo_sample_action_mse_loss = output_batch["demo_sample_action_mse_loss"].detach().float()
             if not torch.isnan(demo_sample_action_mse_loss):
@@ -302,6 +315,8 @@ class WandbCallback(WandBCallbackImage):
 
             avg_value_function_sample_value_mse_loss = self.train_value_function_sample_value_mse_loss_log.get_stat()
             avg_value_function_sample_value_l1_loss = self.train_value_function_sample_value_l1_loss_log.get_stat()
+            avg_action_codec_ae_mse_loss = self.train_action_codec_ae_mse_loss_log.get_stat()
+            avg_action_codec_denoised_mse_loss = self.train_action_codec_denoised_mse_loss_log.get_stat()
 
             dist.all_reduce(self.train_img_unstable_count, op=dist.ReduceOp.SUM)
             dist.all_reduce(self.train_video_unstable_count, op=dist.ReduceOp.SUM)
@@ -336,6 +351,8 @@ class WandbCallback(WandBCallbackImage):
                         f"train{self.wandb_extra_tag}/world_model_sample_value_l1_loss": avg_world_model_sample_value_l1_loss,
                         f"train{self.wandb_extra_tag}/value_function_sample_value_mse_loss": avg_value_function_sample_value_mse_loss,
                         f"train{self.wandb_extra_tag}/value_function_sample_value_l1_loss": avg_value_function_sample_value_l1_loss,
+                        f"train{self.wandb_extra_tag}/action_codec_ae_mse_loss": avg_action_codec_ae_mse_loss,
+                        f"train{self.wandb_extra_tag}/action_codec_denoised_mse_loss": avg_action_codec_denoised_mse_loss,
                         f"train{self.wandb_extra_tag}/train_img_unstable_count": self.train_img_unstable_count.item(),
                         f"train{self.wandb_extra_tag}/train_video_unstable_count": self.train_video_unstable_count.item(),
                         "iteration": iteration,
@@ -403,6 +420,15 @@ class WandbCallback(WandBCallbackImage):
             self.val_final_loss_log.loss += loss.detach().float()
             self.val_final_loss_log.iter_count += 1
             self.val_final_loss_log.edm_loss += output_batch["edm_loss"].detach().float()
+
+            action_codec_ae_mse_loss = output_batch["action_codec_ae_mse_loss"].detach().float()
+            if not torch.isnan(action_codec_ae_mse_loss):
+                self.val_action_codec_ae_mse_loss_log.loss += action_codec_ae_mse_loss
+                self.val_action_codec_ae_mse_loss_log.iter_count += 1
+            action_codec_denoised_mse_loss = output_batch["action_codec_denoised_mse_loss"].detach().float()
+            if not torch.isnan(action_codec_denoised_mse_loss):
+                self.val_action_codec_denoised_mse_loss_log.loss += action_codec_denoised_mse_loss
+                self.val_action_codec_denoised_mse_loss_log.iter_count += 1
 
             demo_sample_action_mse_loss = output_batch["demo_sample_action_mse_loss"].detach().float()
             if not torch.isnan(demo_sample_action_mse_loss):
@@ -556,6 +582,8 @@ class WandbCallback(WandBCallbackImage):
 
             avg_value_function_sample_value_mse_loss = self.val_value_function_sample_value_mse_loss_log.get_stat()
             avg_value_function_sample_value_l1_loss = self.val_value_function_sample_value_l1_loss_log.get_stat()
+            avg_action_codec_ae_mse_loss = self.val_action_codec_ae_mse_loss_log.get_stat()
+            avg_action_codec_denoised_mse_loss = self.val_action_codec_denoised_mse_loss_log.get_stat()
 
             dist.all_reduce(self.val_img_unstable_count, op=dist.ReduceOp.SUM)
             dist.all_reduce(self.val_video_unstable_count, op=dist.ReduceOp.SUM)
@@ -590,6 +618,8 @@ class WandbCallback(WandBCallbackImage):
                         f"val{self.wandb_extra_tag}/world_model_sample_value_l1_loss": avg_world_model_sample_value_l1_loss,
                         f"val{self.wandb_extra_tag}/value_function_sample_value_mse_loss": avg_value_function_sample_value_mse_loss,
                         f"val{self.wandb_extra_tag}/value_function_sample_value_l1_loss": avg_value_function_sample_value_l1_loss,
+                        f"val{self.wandb_extra_tag}/action_codec_ae_mse_loss": avg_action_codec_ae_mse_loss,
+                        f"val{self.wandb_extra_tag}/action_codec_denoised_mse_loss": avg_action_codec_denoised_mse_loss,
                         f"val{self.wandb_extra_tag}/val_img_unstable_count": self.val_img_unstable_count.item(),
                         f"val{self.wandb_extra_tag}/val_video_unstable_count": self.val_video_unstable_count.item(),
                     }

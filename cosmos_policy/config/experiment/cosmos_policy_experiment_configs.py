@@ -262,6 +262,51 @@ cosmos_predict2_2b_480p_robocasa_50_demos_per_task = LazyDict(
         ),
     )
 )
+cosmos_predict2_2b_480p_robocasa_50_demos_per_task_action_codec = LazyDict(
+    dict(
+        defaults=[
+            "/experiment/cosmos_predict2_2b_480p_robocasa_50_demos_per_task",
+            "_self_",
+        ],
+        model=L(CosmosPolicyVideo2WorldModel)(
+            config=dict(
+                use_action_latent_codec=True,
+                action_codec_chunk_size=32,
+                action_codec_action_dim=7,
+                action_codec_latent_height=28,
+                action_codec_latent_width=28,
+                action_codec_bottleneck_dim=512,
+                action_codec_hidden_dim=1024,
+                action_codec_ae_loss_weight=1.0,
+                action_codec_denoised_loss_weight=1.0,
+            ),
+        ),
+        job=dict(
+            group="cosmos_v2_finetune",
+            name="cosmos_predict2_2b_480p_robocasa_50_demos_per_task_action_codec_phase1",
+        ),
+    )
+)
+cosmos_predict2_2b_480p_robocasa_50_demos_per_task_action_codec__inference = LazyDict(
+    dict(
+        defaults=[
+            "/experiment/cosmos_predict2_2b_480p_robocasa_50_demos_per_task_action_codec",
+            "_self_",
+        ],
+        model=L(CosmosPolicyVideo2WorldModel)(
+            config=dict(
+                sde=L(HybridEDMSDE)(
+                    sigma_max=80,
+                    sigma_min=4,
+                )
+            )
+        ),
+        job=dict(
+            group="cosmos_v2_inference",
+            name="cosmos_predict2_2b_480p_robocasa_50_demos_per_task_action_codec_phase1__inference",
+        ),
+    )
+)
 # Inference version
 cosmos_predict2_2b_480p_robocasa_50_demos_per_task__inference = LazyDict(
     dict(

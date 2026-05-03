@@ -609,6 +609,7 @@ def run_episode(
                                         next_generated_latent_with_action,
                                         (cfg.chunk_size, ACTION_DIM),
                                         action_indices=action_indices,
+                                        action_latent_codec=getattr(model, "action_latent_codec", None),
                                     )
                                     .to(torch.float32)
                                     .cpu()

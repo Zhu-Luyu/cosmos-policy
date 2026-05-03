@@ -23,6 +23,7 @@ from typing import Dict, Optional, Tuple
 
 import attrs
 import torch
+import torch.nn.functional as F
 from einops import rearrange
 
 from cosmos_policy._src.imaginaire.lazy_config import LazyCall as L
@@ -38,12 +39,16 @@ from cosmos_policy._src.predict2.models.text2world_model import (
     Text2WorldModelConfig as BaseText2WorldModelConfig,
 )
 from cosmos_policy.conditioner import Text2WorldCondition
+from cosmos_policy.models.action_latent_codec import ActionLatentCodec
 from cosmos_policy.modules.cosmos_sampler import CosmosPolicySampler
 from cosmos_policy.modules.hybrid_edm_sde import HybridEDMSDE
 
 
 def replace_latent_with_action_chunk(
-    x0: torch.Tensor, action_chunk: torch.Tensor, action_indices: torch.Tensor
+    x0: torch.Tensor,
+    action_chunk: torch.Tensor,
+    action_indices: torch.Tensor,
+    action_latent_codec: Optional[ActionLatentCodec] = None,
 ) -> torch.Tensor:
     """
     Replaces the image latent (at the specified action index) in clean input image latents x0 with the action chunk.
@@ -65,11 +70,21 @@ def replace_latent_with_action_chunk(
     batch_indices = torch.arange(x0.shape[0], device=x0.device)
     action_image_latent = x0[batch_indices, :, action_indices, :, :]
 
-    # Create a new tensor with the same shape as action_image_latent, filled with zeros
-    result = torch.zeros_like(action_image_latent)
-
     # Get shapes
     batch_size, latent_channels, latent_h, latent_w = action_image_latent.shape
+
+    if action_latent_codec is not None:
+        result = action_latent_codec.encode_frame(action_chunk).detach().to(device=x0.device, dtype=x0.dtype)
+        expected_shape = (batch_size, latent_channels, latent_h, latent_w)
+        if tuple(result.shape) != expected_shape:
+            raise ValueError(f"Action latent codec returned shape {tuple(result.shape)}, expected {expected_shape}.")
+
+        new_x0 = x0
+        new_x0[batch_indices, :, action_indices, :, :] = result
+        return new_x0
+
+    # Create a new tensor with the same shape as action_image_latent, filled with zeros
+    result = torch.zeros_like(action_image_latent)
 
     # Flatten action_chunk (preserving batch dimension)
     flat_action = action_chunk.reshape(batch_size, -1)
@@ -208,6 +223,17 @@ class CosmosPolicyModelConfig(BaseText2WorldModelConfig):
     # (Must be an integer - or will be cast to an integer later!)
     action_loss_multiplier: int = 1
 
+    # Learned action latent codec. Disabled by default to preserve Cosmos Policy baseline behavior.
+    use_action_latent_codec: bool = False
+    action_codec_chunk_size: Optional[int] = None
+    action_codec_action_dim: Optional[int] = None
+    action_codec_latent_height: int = 28
+    action_codec_latent_width: int = 28
+    action_codec_bottleneck_dim: int = 512
+    action_codec_hidden_dim: int = 1024
+    action_codec_ae_loss_weight: float = 1.0
+    action_codec_denoised_loss_weight: float = 1.0
+
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
         assert not (
@@ -215,6 +241,13 @@ class CosmosPolicyModelConfig(BaseText2WorldModelConfig):
         ), (
             "Cannot enable both mask_loss_for_action_future_state_prediction and mask_value_prediction_loss_for_policy_prediction!"
         )
+        if self.use_action_latent_codec:
+            assert self.action_codec_chunk_size is not None, (
+                "action_codec_chunk_size must be set when use_action_latent_codec=True."
+            )
+            assert self.action_codec_action_dim is not None, (
+                "action_codec_action_dim must be set when use_action_latent_codec=True."
+            )
 
 
 class CosmosPolicyDiffusionModel(BaseDiffusionModel):
@@ -236,6 +269,19 @@ class CosmosPolicyDiffusionModel(BaseDiffusionModel):
         # Cosmos Policy SDE and Sampler
         self.sde = lazy_instantiate(config.sde)
         self.sampler = CosmosPolicySampler()
+        self.action_latent_codec: Optional[ActionLatentCodec]
+        if config.use_action_latent_codec:
+            self.action_latent_codec = ActionLatentCodec(
+                chunk_size=config.action_codec_chunk_size,
+                action_dim=config.action_codec_action_dim,
+                latent_channels=config.state_ch,
+                latent_height=config.action_codec_latent_height,
+                latent_width=config.action_codec_latent_width,
+                bottleneck_dim=config.action_codec_bottleneck_dim,
+                hidden_dim=config.action_codec_hidden_dim,
+            )
+        else:
+            self.action_latent_codec = None
 
     def training_step(
         self, data_batch: dict[str, torch.Tensor], iteration: int
@@ -304,6 +350,7 @@ class CosmosPolicyDiffusionModel(BaseDiffusionModel):
             kendall_loss = kendall_loss.sum(dim=1).mean() * self.loss_scale
         else:
             raise ValueError(f"Invalid loss_reduce: {self.loss_reduce}")
+        kendall_loss = kendall_loss + output_batch["action_codec_total_loss"]
 
         return output_batch, kendall_loss
 
@@ -382,6 +429,7 @@ class CosmosPolicyDiffusionModel(BaseDiffusionModel):
             x0_B_C_T_H_W,
             action_chunk,
             action_indices=action_indices,
+            action_latent_codec=self.action_latent_codec,
         )
         # Proprio
         if torch.all(current_proprio_indices != -1):  # -1 indicates proprio is not used
@@ -647,6 +695,22 @@ class CosmosPolicyDiffusionModel(BaseDiffusionModel):
         all_samples_action_mse_loss = (action_diff**2).mean()
         all_samples_action_l1_loss = torch.abs(action_diff).mean()
 
+        action_codec_ae_mse_loss = torch.zeros((), dtype=x0_B_C_T_H_W.dtype, device=x0_B_C_T_H_W.device)
+        action_codec_denoised_mse_loss = torch.zeros((), dtype=x0_B_C_T_H_W.dtype, device=x0_B_C_T_H_W.device)
+        if self.action_latent_codec is not None:
+            reconstructed_actions = self.action_latent_codec(action_chunk)
+            action_codec_ae_mse_loss = F.mse_loss(reconstructed_actions, action_chunk)
+
+            demo_mask = rollout_data_mask == 0
+            if torch.any(demo_mask):
+                denoised_action_latent = model_pred.x0[batch_indices, :, action_indices, :, :]
+                denoised_actions = self.action_latent_codec.decode_frame(denoised_action_latent)
+                action_codec_denoised_mse_loss = F.mse_loss(denoised_actions[demo_mask], action_chunk[demo_mask])
+        action_codec_total_loss = (
+            self.config.action_codec_ae_loss_weight * action_codec_ae_mse_loss
+            + self.config.action_codec_denoised_loss_weight * action_codec_denoised_mse_loss
+        )
+
         # Get losses for value function prediction
         value_diff = (
             x0_B_C_T_H_W[batch_indices, :, value_indices, :, :] - model_pred.x0[batch_indices, :, value_indices, :, :]
@@ -673,6 +737,9 @@ class CosmosPolicyDiffusionModel(BaseDiffusionModel):
             "mse_loss": pred_mse_B_C_T_H_W.mean(),
             "edm_loss": edm_loss_B_C_T_H_W.mean(),
             "edm_loss_per_frame": torch.mean(edm_loss_B_C_T_H_W, dim=[1, 3, 4]),
+            "action_codec_ae_mse_loss": action_codec_ae_mse_loss,
+            "action_codec_denoised_mse_loss": action_codec_denoised_mse_loss,
+            "action_codec_total_loss": action_codec_total_loss,
             # Demo sample losses
             "demo_sample_action_mse_loss": demo_sample_action_mse_loss,  # Main action loss for policy
             "demo_sample_action_l1_loss": demo_sample_action_l1_loss,  # Main action loss for policy

@@ -526,6 +526,7 @@ class PolicyServer:
                                         next_generated_latent_with_action,
                                         (self.cfg.chunk_size, ACTION_DIM),
                                         action_indices=action_indices,
+                                        action_latent_codec=getattr(self.model, "action_latent_codec", None),
                                     )
                                     .to(torch.float32)
                                     .cpu()

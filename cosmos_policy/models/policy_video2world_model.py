@@ -355,7 +355,10 @@ class CosmosPolicyVideo2WorldModel(CosmosPolicyDiffusionModel):
             # No need to do this for the other frames; actions are special because they are manually injected
             condition.orig_gt_frames = condition.gt_frames.clone()  # Keep a backup of the original gt_frames
             condition.gt_frames = replace_latent_with_action_chunk(
-                condition.gt_frames, data_batch["actions"], action_indices=data_batch["action_latent_idx"]
+                condition.gt_frames,
+                data_batch["actions"],
+                action_indices=data_batch["action_latent_idx"],
+                action_latent_codec=self.action_latent_codec,
             )
 
         # Manually add in the current and future proprio to the condition.gt_frames as well

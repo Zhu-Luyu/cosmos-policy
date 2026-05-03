@@ -555,7 +555,10 @@ def prepare_images_for_model(images: List[np.ndarray], cfg, flip_images: bool = 
 
 
 def extract_action_chunk_from_latent_sequence(
-    output_latent: torch.Tensor, action_shape: tuple, action_indices: torch.Tensor
+    output_latent: torch.Tensor,
+    action_shape: tuple,
+    action_indices: torch.Tensor,
+    action_latent_codec=None,
 ) -> torch.Tensor:
     """
     Extract the predicted action chunk from the generated latent sequence.
@@ -571,6 +574,9 @@ def extract_action_chunk_from_latent_sequence(
     # Get the action latent frame
     batch_indices = torch.arange(output_latent.shape[0], device=output_latent.device)
     action_latent_frame = output_latent[batch_indices, :, action_indices, :, :]  # (B, C', H', W')
+    if action_latent_codec is not None:
+        return action_latent_codec.decode_frame(action_latent_frame)
+
     # Get shape of latent frames
     batch_size, latent_channels, latent_h, latent_w = action_latent_frame.shape
     # Flatten the action latent frame into a vector (preserving batch dimension)
@@ -1126,7 +1132,10 @@ def get_action(
         )
         actions = (
             extract_action_chunk_from_latent_sequence(
-                generated_latent_with_action, action_shape=(cfg.chunk_size, ACTION_DIM), action_indices=action_indices
+                generated_latent_with_action,
+                action_shape=(cfg.chunk_size, ACTION_DIM),
+                action_indices=action_indices,
+                action_latent_codec=getattr(model, "action_latent_codec", None),
             )
             .to(torch.float32)
             .cpu()
@@ -2068,6 +2077,7 @@ def persistent_parallel_worker(gpu_id, cfg, dataset_stats, task_queue, result_qu
                                     next_generated_latent_with_action,
                                     (cfg.chunk_size, ACTION_DIM),
                                     action_indices=action_indices,
+                                    action_latent_codec=getattr(model, "action_latent_codec", None),
                                 )
                                 .to(torch.float32)
                                 .cpu()
