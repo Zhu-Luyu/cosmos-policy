@@ -35,6 +35,21 @@ val_sampling_size_override = dict(
     video_width=1280,
 )
 BASE_DATASETS_DIR = os.environ.get("BASE_DATASETS_DIR", ".")
+BASE_CHECKPOINT_URI = "hf://nvidia/Cosmos-Predict2-2B-Video2World/model-480p-16fps.pt"
+
+
+def _resolve_checkpoint_path(checkpoint_uri: str, env_var: str | None = None) -> str:
+    if env_var:
+        local_override = os.environ.get(env_var)
+        if local_override:
+            return local_override
+    if os.environ.get("COSMOS_POLICY_SKIP_HF_CHECKPOINT_DOWNLOAD") and checkpoint_uri.startswith("hf://"):
+        return checkpoint_uri
+    return get_checkpoint_path(checkpoint_uri)
+
+
+def _resolve_base_checkpoint_path() -> str:
+    return _resolve_checkpoint_path(BASE_CHECKPOINT_URI, "COSMOS_POLICY_BASE_CHECKPOINT")
 
 
 # *** Main checkpoint ***
@@ -145,7 +160,7 @@ cosmos_predict2_2b_480p_libero = LazyDict(
             context_parallel_size=1,
         ),
         checkpoint=dict(
-            load_path=get_checkpoint_path("hf://nvidia/Cosmos-Predict2-2B-Video2World/model-480p-16fps.pt"),
+            load_path=_resolve_base_checkpoint_path(),
             load_training_state=False,  # This means do not load train state from the base checkpoint above (load_path); but when resuming this job, will load train state
             strict_resume=False,
             save_iter=1000,
@@ -283,7 +298,7 @@ cosmos_predict2_2b_480p_robocasa_50_demos_per_task_action_codec = LazyDict(
         ),
         job=dict(
             group="cosmos_v2_finetune",
-            name="cosmos_predict2_2b_480p_robocasa_50_demos_per_task_action_codec_phase1",
+            name="cosmos_predict2_2b_480p_robocasa_50_demos_per_task_action_codec",
         ),
     )
 )
@@ -303,7 +318,7 @@ cosmos_predict2_2b_480p_robocasa_50_demos_per_task_action_codec__inference = Laz
         ),
         job=dict(
             group="cosmos_v2_inference",
-            name="cosmos_predict2_2b_480p_robocasa_50_demos_per_task_action_codec_phase1__inference",
+            name="cosmos_predict2_2b_480p_robocasa_50_demos_per_task_action_codec__inference",
         ),
     )
 )
@@ -446,8 +461,9 @@ cosmos_predict2_2b_480p_aloha_185_demos_4_tasks_mixture_foldshirt15_candiesinbow
         ],
         checkpoint=dict(
             # Resume from 50K checkpoint of base Cosmos Policy run
-            load_path=get_checkpoint_path(
-                "hf://nvidia/Cosmos-Policy-ALOHA-Predict2-2B/Cosmos-Policy-ALOHA-Predict2-2B.pt"
+            load_path=_resolve_checkpoint_path(
+                "hf://nvidia/Cosmos-Policy-ALOHA-Predict2-2B/Cosmos-Policy-ALOHA-Predict2-2B.pt",
+                "COSMOS_POLICY_ALOHA_CHECKPOINT",
             ),
         ),
         scheduler=dict(
@@ -516,6 +532,8 @@ def register_configs():
         cosmos_predict2_2b_480p_libero__inference_only,
         # RoboCasa
         cosmos_predict2_2b_480p_robocasa_50_demos_per_task,  # *** Main checkpoint ***
+        cosmos_predict2_2b_480p_robocasa_50_demos_per_task_action_codec,
+        cosmos_predict2_2b_480p_robocasa_50_demos_per_task_action_codec__inference,
         cosmos_predict2_2b_480p_robocasa_50_demos_per_task__inference,
         # ALOHA
         cosmos_predict2_2b_480p_aloha_185_demos_4_tasks_mixture_foldshirt15_candiesinbowl45_candyinbag45_eggplantchickenonplate80,  # *** Main checkpoint ***

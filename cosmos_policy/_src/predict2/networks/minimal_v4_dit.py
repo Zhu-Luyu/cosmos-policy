@@ -33,7 +33,6 @@ except ImportError:
 import numpy as np
 import torch
 import torch.amp as amp
-import transformer_engine as te
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 from packaging.version import Version
@@ -49,10 +48,36 @@ except ImportError:
 
 from torchvision import transforms
 
-if Version(te.__version__) >= Version("2.8.0"):
-    from transformer_engine.pytorch.attention.rope import apply_rotary_pos_emb
-else:
-    from transformer_engine.pytorch.attention import apply_rotary_pos_emb
+try:
+    import transformer_engine as te
+except Exception:
+    te = None
+
+try:
+    if te is not None and Version(te.__version__) >= Version("2.8.0"):
+        from transformer_engine.pytorch.attention.rope import apply_rotary_pos_emb
+    else:
+        from transformer_engine.pytorch.attention import apply_rotary_pos_emb
+except Exception:
+
+    def _rotate_half(x: torch.Tensor) -> torch.Tensor:
+        x1, x2 = x.chunk(2, dim=-1)
+        return torch.cat((-x2, x1), dim=-1)
+
+    def apply_rotary_pos_emb(
+        t: torch.Tensor, freqs: torch.Tensor, tensor_format: str = "bshd", fused: bool = True
+    ) -> torch.Tensor:
+        if tensor_format != "bshd":
+            raise ImportError("Transformer Engine is required for RoPE tensor formats other than bshd.")
+        if freqs.ndim == 4:
+            freqs = freqs.squeeze(1).squeeze(1)
+        cos = torch.cos(freqs).to(dtype=t.dtype, device=t.device)
+        sin = torch.sin(freqs).to(dtype=t.dtype, device=t.device)
+        rope_shape = (1, cos.shape[0], *([1] * (t.ndim - 3)), cos.shape[-1])
+        cos = cos.reshape(rope_shape)
+        sin = sin.reshape(rope_shape)
+        return (t * cos) + (_rotate_half(t) * sin)
+
 from torch.nn.attention.flex_attention import BlockMask, create_block_mask, flex_attention
 
 from cosmos_policy._src.imaginaire.attention import attention

@@ -20,7 +20,6 @@ from omegaconf import ListConfig
 from torch import nn
 
 from cosmos_policy._src.imaginaire.utils import log
-from cosmos_policy._src.predict2.utils.fused_adam_dtensor import FusedAdam
 
 
 def get_regular_param_group(net: nn.Module):
@@ -61,6 +60,8 @@ def get_base_optimizer(
     if optim_type == "adamw":
         opt_cls = torch.optim.AdamW
     elif optim_type == "fusedadam":
+        from cosmos_policy._src.predict2.utils.fused_adam_dtensor import FusedAdam
+
         opt_cls = FusedAdam
     else:
         raise ValueError(f"Unknown optimizer type: {optim_type}")
